@@ -1,0 +1,352 @@
+// Jenkins Pipeline for Healthcare AI Chatbot with TMAS Integration
+
+pipeline {
+    agent any
+    
+    environment {
+        // Container registry configuration
+        REGISTRY = 'healthcareairegistry.azurecr.io'
+        IMAGE_NAME = 'healthcare-ai-chatbot'
+        IMAGE_TAG = "${BUILD_NUMBER}"
+        
+        // TMAS configuration
+        TMAS_API_KEY = credentials('tmas-api-key')
+        TMAS_REGION = 'us-1'
+        
+        // Azure credentials
+        AZURE_CLIENT_ID = credentials('azure-client-id')
+        AZURE_CLIENT_SECRET = credentials('azure-client-secret')
+        AZURE_TENANT_ID = credentials('azure-tenant-id')
+        AZURE_SUBSCRIPTION_ID = credentials('azure-subscription-id')
+        
+        // Application secrets
+        OPENAI_API_KEY = credentials('openai-api-key')
+        AZURE_STORAGE_ACCOUNT_NAME = credentials('azure-storage-account-name')
+        AZURE_STORAGE_ACCOUNT_KEY = credentials('azure-storage-account-key')
+        AZURE_CONTAINER_NAME = credentials('azure-container-name')
+    }
+    
+    tools {
+        nodejs 'NodeJS-20'
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                
+                script {
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: "git rev-parse --short HEAD",
+                        returnStdout: true
+                    ).trim()
+                }
+            }
+        }
+        
+        stage('Build Application') {
+            steps {
+                sh '''
+                    echo "Installing dependencies..."
+                    npm ci
+                    
+                    echo "Building application..."
+                    npm run build
+                    
+                    echo "Running tests..."
+                    npm test
+                '''
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    docker.withRegistry("https://${REGISTRY}", 'azure-registry-credentials') {
+                        def image = docker.build("${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}")
+                        image.push()
+                        image.push("latest")
+                        
+                        env.FULL_IMAGE_NAME = "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+                    }
+                }
+            }
+        }
+        
+        stage('TMAS Security Scan') {
+            steps {
+                sh '''
+                    echo "Downloading TMAS CLI..."
+                    curl -L -o tmas https://downloads.trendmicro.com/SupportFiles/TMAS/LATEST/Linux/tmas
+                    chmod +x tmas
+                    sudo mv tmas /usr/local/bin/
+                    
+                    echo "Configuring TMAS..."
+                    tmas configure --api-key $TMAS_API_KEY --region $TMAS_REGION
+                    
+                    echo "Scanning container image with TMAS..."
+                    tmas scan registry:$FULL_IMAGE_NAME -VMS \\
+                        --output-format json \\
+                        --output-file tmas-scan-results.json \\
+                        --save-sbom \\
+                        --override tmas_healthcare_overrides.yml
+                    
+                    # Generate SARIF format for Jenkins integration
+                    tmas scan registry:$FULL_IMAGE_NAME -VMS \\
+                        --output-format sarif \\
+                        --output-file tmas-scan-results.sarif \\
+                        --override tmas_healthcare_overrides.yml
+                '''
+                
+                script {
+                    // Analyze scan results
+                    def scanResults = readJSON file: 'tmas-scan-results.json'
+                    
+                    def criticalCount = 0
+                    def highCount = 0
+                    def malwareCount = 0
+                    def secretsCount = 0
+                    
+                    if (scanResults.vulnerabilities) {
+                        criticalCount = scanResults.vulnerabilities.count { it.severity == 'critical' }
+                        highCount = scanResults.vulnerabilities.count { it.severity == 'high' }
+                    }
+                    
+                    if (scanResults.malware) {
+                        malwareCount = scanResults.malware.size()
+                    }
+                    
+                    if (scanResults.secrets) {
+                        secretsCount = scanResults.secrets.size()
+                    }
+                    
+                    echo "=== TMAS Security Scan Summary ==="
+                    echo "Critical vulnerabilities: ${criticalCount}"
+                    echo "High vulnerabilities: ${highCount}"
+                    echo "Malware detected: ${malwareCount}"
+                    echo "Secrets detected: ${secretsCount}"
+                    echo "================================="
+                    
+                    // Set build result based on findings
+                    if (criticalCount > 0 || malwareCount > 0) {
+                        currentBuild.result = 'FAILURE'
+                        error("Critical security issues detected! Build failed.")
+                    }
+                    
+                    if (highCount > 5 || secretsCount > 0) {
+                        currentBuild.result = 'UNSTABLE'
+                        echo "Warning: High-risk issues detected. Review before production deployment."
+                    }
+                    
+                    echo "✅ Security scan completed successfully!"
+                }
+            }
+            
+            post {
+                always {
+                    archiveArtifacts artifacts: 'tmas-scan-results.*,sbom.json', fingerprint: true
+                    
+                    // Publish security scan results
+                    publishHTML([
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: '.',
+                        reportFiles: 'tmas-scan-results.json',
+                        reportName: 'TMAS Security Scan Report'
+                    ])
+                }
+            }
+        }
+        
+        stage('Deploy to Staging') {
+            when {
+                branch 'develop'
+            }
+            steps {
+                sh '''
+                    echo "Deploying to Azure Container Instances (Staging)..."
+                    
+                    # Login to Azure
+                    az login --service-principal \\
+                        --username $AZURE_CLIENT_ID \\
+                        --password $AZURE_CLIENT_SECRET \\
+                        --tenant $AZURE_TENANT_ID
+                    
+                    az account set --subscription $AZURE_SUBSCRIPTION_ID
+                    
+                    # Deploy to Azure Container Instances
+                    az container create \\
+                        --resource-group healthcare-ai-staging-rg \\
+                        --name healthcare-ai-staging-${BUILD_NUMBER} \\
+                        --image $FULL_IMAGE_NAME \\
+                        --ports 5000 \\
+                        --dns-name-label healthcare-ai-staging-${BUILD_NUMBER} \\
+                        --environment-variables \\
+                            NODE_ENV=staging \\
+                            OPENAI_API_KEY=$OPENAI_API_KEY \\
+                            AZURE_STORAGE_ACCOUNT_NAME=$AZURE_STORAGE_ACCOUNT_NAME \\
+                            AZURE_STORAGE_ACCOUNT_KEY=$AZURE_STORAGE_ACCOUNT_KEY \\
+                            AZURE_CONTAINER_NAME=$AZURE_CONTAINER_NAME \\
+                        --restart-policy Always \\
+                        --memory 2 \\
+                        --cpu 1
+                    
+                    echo "✅ Staging deployment completed!"
+                    echo "Staging URL: https://healthcare-ai-staging-${BUILD_NUMBER}.eastus.azurecontainer.io"
+                '''
+            }
+        }
+        
+        stage('Deploy to Production') {
+            when {
+                allOf {
+                    branch 'main'
+                    expression { currentBuild.result != 'FAILURE' }
+                }
+            }
+            steps {
+                script {
+                    // Manual approval for production deployment
+                    input message: 'Deploy to Production?', ok: 'Deploy',
+                          submitterParameter: 'APPROVED_BY'
+                }
+                
+                sh '''
+                    echo "Final security validation before production deployment..."
+                    
+                    # Re-check scan results
+                    if [ -f "tmas-scan-results.json" ]; then
+                        CRITICAL_COUNT=$(jq '.vulnerabilities | map(select(.severity == "critical")) | length' tmas-scan-results.json 2>/dev/null || echo "0")
+                        MALWARE_COUNT=$(jq '.malware | length' tmas-scan-results.json 2>/dev/null || echo "0")
+                        
+                        if [ "$CRITICAL_COUNT" -gt "0" ] || [ "$MALWARE_COUNT" -gt "0" ]; then
+                            echo "❌ Cannot deploy to production: Critical security issues detected!"
+                            exit 1
+                        fi
+                        
+                        echo "✅ Final security check passed. Proceeding with production deployment."
+                    else
+                        echo "❌ Security scan results not available!"
+                        exit 1
+                    fi
+                    
+                    echo "Deploying to Azure App Service (Production)..."
+                    
+                    # Login to Azure
+                    az login --service-principal \\
+                        --username $AZURE_CLIENT_ID \\
+                        --password $AZURE_CLIENT_SECRET \\
+                        --tenant $AZURE_TENANT_ID
+                    
+                    az account set --subscription $AZURE_SUBSCRIPTION_ID
+                    
+                    # Deploy to Azure App Service
+                    az webapp config container set \\
+                        --resource-group healthcare-ai-prod-rg \\
+                        --name healthcare-ai-production \\
+                        --docker-custom-image-name $FULL_IMAGE_NAME \\
+                        --docker-registry-server-url https://${REGISTRY}
+                    
+                    # Update app settings
+                    az webapp config appsettings set \\
+                        --resource-group healthcare-ai-prod-rg \\
+                        --name healthcare-ai-production \\
+                        --settings \\
+                            NODE_ENV=production \\
+                            OPENAI_API_KEY=$OPENAI_API_KEY \\
+                            AZURE_STORAGE_ACCOUNT_NAME=$AZURE_STORAGE_ACCOUNT_NAME \\
+                            AZURE_STORAGE_ACCOUNT_KEY=$AZURE_STORAGE_ACCOUNT_KEY \\
+                            AZURE_CONTAINER_NAME=$AZURE_CONTAINER_NAME
+                    
+                    # Restart the app service
+                    az webapp restart \\
+                        --resource-group healthcare-ai-prod-rg \\
+                        --name healthcare-ai-production
+                    
+                    echo "🎉 Production deployment completed!"
+                    echo "Production URL: https://healthcare-ai-production.azurewebsites.net"
+                '''
+            }
+        }
+        
+        stage('Health Check') {
+            steps {
+                script {
+                    if (env.BRANCH_NAME == 'develop') {
+                        env.APP_URL = "https://healthcare-ai-staging-${BUILD_NUMBER}.eastus.azurecontainer.io"
+                    } else {
+                        env.APP_URL = "https://healthcare-ai-production.azurewebsites.net"
+                    }
+                }
+                
+                sh '''
+                    echo "Running health check for: $APP_URL"
+                    
+                    # Wait for application to start
+                    sleep 30
+                    
+                    # Check application health
+                    if curl -f -s "$APP_URL/api/azure/status" > /dev/null; then
+                        echo "✅ Application health check passed!"
+                    else
+                        echo "❌ Application health check failed!"
+                        exit 1
+                    fi
+                '''
+            }
+        }
+    }
+    
+    post {
+        always {
+            // Clean up workspace
+            cleanWs()
+        }
+        
+        success {
+            echo '🎉 Healthcare AI Chatbot pipeline completed successfully!'
+            echo '🔒 Security validated with TMAS scanning'
+            
+            // Send success notification
+            emailext (
+                subject: "✅ Healthcare AI Deployment Success - Build ${BUILD_NUMBER}",
+                body: """
+                Healthcare AI Chatbot has been successfully deployed!
+                
+                Build: ${BUILD_NUMBER}
+                Branch: ${BRANCH_NAME}
+                Commit: ${GIT_COMMIT_SHORT}
+                
+                Security Scan: ✅ Passed
+                Deployment: ✅ Completed
+                
+                Access the application at: ${APP_URL}
+                """,
+                to: "${env.CHANGE_AUTHOR_EMAIL ?: 'devops@healthcare-ai.com'}"
+            )
+        }
+        
+        failure {
+            echo '❌ Healthcare AI Chatbot pipeline failed!'
+            
+            // Send failure notification
+            emailext (
+                subject: "❌ Healthcare AI Deployment Failed - Build ${BUILD_NUMBER}",
+                body: """
+                Healthcare AI Chatbot deployment failed!
+                
+                Build: ${BUILD_NUMBER}
+                Branch: ${BRANCH_NAME}
+                Commit: ${GIT_COMMIT_SHORT}
+                
+                Please check the build logs and security scan results.
+                Review any critical vulnerabilities or deployment issues.
+                
+                Jenkins Build: ${BUILD_URL}
+                """,
+                to: "${env.CHANGE_AUTHOR_EMAIL ?: 'devops@healthcare-ai.com'}"
+            )
+        }
+    }
+}
