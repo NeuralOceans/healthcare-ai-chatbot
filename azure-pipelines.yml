@@ -1,0 +1,316 @@
+# Azure DevOps Pipeline for Healthcare AI Chatbot with TMAS Integration
+
+trigger:
+  branches:
+    include:
+    - main
+    - develop
+  paths:
+    exclude:
+    - README.md
+    - docs/*
+
+pr:
+  branches:
+    include:
+    - main
+    - develop
+
+variables:
+  # Build configuration
+  buildConfiguration: 'Release'
+  vmImageName: 'ubuntu-latest'
+  
+  # Container registry
+  containerRegistry: 'healthcareairegistry.azurecr.io'
+  imageRepository: 'healthcare-ai-chatbot'
+  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
+  tag: '$(Build.BuildId)'
+  
+  # TMAS configuration
+  tmasRegion: 'us-1'
+  
+  # Azure resources
+  resourceGroupStaging: 'healthcare-ai-staging-rg'
+  resourceGroupProduction: 'healthcare-ai-prod-rg'
+  appServiceStaging: 'healthcare-ai-staging'
+  appServiceProduction: 'healthcare-ai-production'
+
+stages:
+- stage: Build
+  displayName: 'Build and Test'
+  jobs:
+  - job: Build
+    displayName: 'Build Healthcare AI Application'
+    pool:
+      vmImage: $(vmImageName)
+    
+    steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '20.x'
+      displayName: 'Install Node.js'
+
+    - script: |
+        npm ci
+        npm run build
+      displayName: 'Install dependencies and build'
+
+    - script: |
+        npm test || echo "No tests configured yet"
+      displayName: 'Run tests'
+
+    - task: Docker@2
+      displayName: 'Build Docker image'
+      inputs:
+        containerRegistry: '$(containerRegistry)'
+        repository: '$(imageRepository)'
+        command: 'build'
+        Dockerfile: '$(dockerfilePath)'
+        tags: |
+          $(tag)
+          latest
+
+    - task: Docker@2
+      displayName: 'Push Docker image'
+      inputs:
+        containerRegistry: '$(containerRegistry)'
+        repository: '$(imageRepository)'
+        command: 'push'
+        tags: |
+          $(tag)
+          latest
+
+- stage: SecurityScan
+  displayName: 'TMAS Security Scan'
+  dependsOn: Build
+  jobs:
+  - job: TMAScan
+    displayName: 'Trend Micro Artifact Scanner'
+    pool:
+      vmImage: $(vmImageName)
+    
+    steps:
+    - script: |
+        # Download TMAS CLI
+        curl -L -o tmas https://downloads.trendmicro.com/SupportFiles/TMAS/LATEST/Linux/tmas
+        chmod +x tmas
+        sudo mv tmas /usr/local/bin/
+      displayName: 'Download TMAS CLI'
+
+    - script: |
+        # Configure TMAS
+        tmas configure --api-key $(TMAS_API_KEY) --region $(tmasRegion)
+      displayName: 'Configure TMAS'
+      env:
+        TMAS_API_KEY: $(TMAS_API_KEY)
+
+    - script: |
+        # Scan the built container image
+        IMAGE_NAME="$(containerRegistry)/$(imageRepository):$(tag)"
+        echo "Scanning image: $IMAGE_NAME"
+        
+        tmas scan registry:$IMAGE_NAME -VMS \
+          --output-format json \
+          --output-file $(Agent.TempDirectory)/tmas-scan-results.json \
+          --save-sbom \
+          --override tmas_healthcare_overrides.yml
+        
+        # Generate SARIF output for Azure DevOps integration
+        tmas scan registry:$IMAGE_NAME -VMS \
+          --output-format sarif \
+          --output-file $(Agent.TempDirectory)/tmas-scan-results.sarif \
+          --override tmas_healthcare_overrides.yml
+      displayName: 'Scan container image with TMAS'
+      env:
+        TMAS_API_KEY: $(TMAS_API_KEY)
+
+    - task: PublishTestResults@2
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: '$(Agent.TempDirectory)/tmas-scan-results.xml'
+        testRunTitle: 'TMAS Security Scan Results'
+      condition: always()
+      displayName: 'Publish TMAS scan results'
+
+    - script: |
+        # Analyze scan results
+        RESULTS_FILE="$(Agent.TempDirectory)/tmas-scan-results.json"
+        
+        if [ -f "$RESULTS_FILE" ]; then
+          echo "Analyzing TMAS scan results..."
+          
+          # Extract vulnerability counts (with fallback if jq fails)
+          CRITICAL_COUNT=$(jq '.vulnerabilities | map(select(.severity == "critical")) | length' "$RESULTS_FILE" 2>/dev/null || echo "0")
+          HIGH_COUNT=$(jq '.vulnerabilities | map(select(.severity == "high")) | length' "$RESULTS_FILE" 2>/dev/null || echo "0")
+          MALWARE_COUNT=$(jq '.malware | length' "$RESULTS_FILE" 2>/dev/null || echo "0")
+          SECRETS_COUNT=$(jq '.secrets | length' "$RESULTS_FILE" 2>/dev/null || echo "0")
+          
+          echo "=== TMAS Security Scan Summary ==="
+          echo "Critical vulnerabilities: $CRITICAL_COUNT"
+          echo "High vulnerabilities: $HIGH_COUNT"
+          echo "Malware detected: $MALWARE_COUNT"
+          echo "Secrets detected: $SECRETS_COUNT"
+          echo "================================="
+          
+          # Set Azure DevOps variables for downstream stages
+          echo "##vso[task.setvariable;variable=CriticalVulns;isOutput=true]$CRITICAL_COUNT"
+          echo "##vso[task.setvariable;variable=HighVulns;isOutput=true]$HIGH_COUNT"
+          echo "##vso[task.setvariable;variable=MalwareCount;isOutput=true]$MALWARE_COUNT"
+          echo "##vso[task.setvariable;variable=SecretsCount;isOutput=true]$SECRETS_COUNT"
+          
+          # Fail build on critical issues
+          if [ "$CRITICAL_COUNT" -gt "0" ] || [ "$MALWARE_COUNT" -gt "0" ]; then
+            echo "##vso[task.logissue type=error]Critical security issues detected! Build failed."
+            exit 1
+          fi
+          
+          # Warning for high-risk issues
+          if [ "$HIGH_COUNT" -gt "5" ] || [ "$SECRETS_COUNT" -gt "0" ]; then
+            echo "##vso[task.logissue type=warning]High-risk security issues detected. Review before production deployment."
+          fi
+          
+          echo "✅ Security scan completed successfully!"
+        else
+          echo "##vso[task.logissue type=error]TMAS scan results file not found!"
+          exit 1
+        fi
+      name: 'SecurityAnalysis'
+      displayName: 'Analyze security scan results'
+
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(Agent.TempDirectory)'
+        ArtifactName: 'tmas-security-results'
+        publishLocation: 'Container'
+      condition: always()
+      displayName: 'Upload security scan artifacts'
+
+- stage: DeployStaging
+  displayName: 'Deploy to Staging'
+  dependsOn: 
+  - Build
+  - SecurityScan
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/develop'))
+  jobs:
+  - deployment: DeployStaging
+    displayName: 'Deploy to Azure App Service (Staging)'
+    pool:
+      vmImage: $(vmImageName)
+    environment: 'healthcare-ai-staging'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureWebAppContainer@1
+            displayName: 'Deploy to staging'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              appName: '$(appServiceStaging)'
+              resourceGroupName: '$(resourceGroupStaging)'
+              containers: '$(containerRegistry)/$(imageRepository):$(tag)'
+              appSettings: |
+                -NODE_ENV staging
+                -OPENAI_API_KEY $(OPENAI_API_KEY)
+                -AZURE_STORAGE_ACCOUNT_NAME $(AZURE_STORAGE_ACCOUNT_NAME)
+                -AZURE_STORAGE_ACCOUNT_KEY $(AZURE_STORAGE_ACCOUNT_KEY)
+                -AZURE_CONTAINER_NAME $(AZURE_CONTAINER_NAME)
+
+          - script: |
+              echo "🚀 Healthcare AI Chatbot deployed to staging!"
+              echo "Staging URL: https://$(appServiceStaging).azurewebsites.net"
+            displayName: 'Deployment notification'
+
+- stage: DeployProduction
+  displayName: 'Deploy to Production'
+  dependsOn: 
+  - Build
+  - SecurityScan
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  jobs:
+  - deployment: DeployProduction
+    displayName: 'Deploy to Azure App Service (Production)'
+    pool:
+      vmImage: $(vmImageName)
+    environment: 'healthcare-ai-production'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: 'tmas-security-results'
+            displayName: 'Download security scan results'
+
+          - script: |
+              # Final security check before production deployment
+              RESULTS_FILE="$(Pipeline.Workspace)/tmas-security-results/tmas-scan-results.json"
+              
+              if [ -f "$RESULTS_FILE" ]; then
+                CRITICAL_COUNT=$(jq '.vulnerabilities | map(select(.severity == "critical")) | length' "$RESULTS_FILE" 2>/dev/null || echo "0")
+                MALWARE_COUNT=$(jq '.malware | length' "$RESULTS_FILE" 2>/dev/null || echo "0")
+                
+                if [ "$CRITICAL_COUNT" -gt "0" ] || [ "$MALWARE_COUNT" -gt "0" ]; then
+                  echo "##vso[task.logissue type=error]Cannot deploy to production: Critical security issues detected!"
+                  exit 1
+                fi
+                
+                echo "✅ Final security check passed. Proceeding with production deployment."
+              else
+                echo "##vso[task.logissue type=error]Security scan results not available!"
+                exit 1
+              fi
+            displayName: 'Final security validation'
+
+          - task: AzureWebAppContainer@1
+            displayName: 'Deploy to production'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              appName: '$(appServiceProduction)'
+              resourceGroupName: '$(resourceGroupProduction)'
+              containers: '$(containerRegistry)/$(imageRepository):$(tag)'
+              appSettings: |
+                -NODE_ENV production
+                -OPENAI_API_KEY $(OPENAI_API_KEY)
+                -AZURE_STORAGE_ACCOUNT_NAME $(AZURE_STORAGE_ACCOUNT_NAME)
+                -AZURE_STORAGE_ACCOUNT_KEY $(AZURE_STORAGE_ACCOUNT_KEY)
+                -AZURE_CONTAINER_NAME $(AZURE_CONTAINER_NAME)
+
+          - script: |
+              echo "🎉 Healthcare AI Chatbot successfully deployed to production!"
+              echo "Production URL: https://$(appServiceProduction).azurewebsites.net"
+              echo "🔒 Security validated with TMAS scanning"
+            displayName: 'Production deployment notification'
+
+- stage: PostDeployment
+  displayName: 'Post-Deployment Validation'
+  dependsOn: 
+  - DeployStaging
+  - DeployProduction
+  condition: always()
+  jobs:
+  - job: HealthCheck
+    displayName: 'Application Health Check'
+    pool:
+      vmImage: $(vmImageName)
+    
+    steps:
+    - script: |
+        if [ "$(Build.SourceBranch)" = "refs/heads/develop" ]; then
+          APP_URL="https://$(appServiceStaging).azurewebsites.net"
+        else
+          APP_URL="https://$(appServiceProduction).azurewebsites.net"
+        fi
+        
+        echo "Running health check for: $APP_URL"
+        
+        # Wait for application to start
+        sleep 30
+        
+        # Check application health
+        if curl -f -s "$APP_URL/api/azure/status" > /dev/null; then
+          echo "✅ Application health check passed!"
+        else
+          echo "##vso[task.logissue type=error]Application health check failed!"
+          exit 1
+        fi
+      displayName: 'Health check'

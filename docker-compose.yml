@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  healthcare-ai:
+    build: .
+    container_name: healthcare-ai-chatbot
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      # OpenAI Configuration
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # Azure Storage Configuration
+      - AZURE_STORAGE_ACCOUNT_NAME=${AZURE_STORAGE_ACCOUNT_NAME}
+      - AZURE_STORAGE_ACCOUNT_KEY=${AZURE_STORAGE_ACCOUNT_KEY}
+      - AZURE_CONTAINER_NAME=${AZURE_CONTAINER_NAME:-patient-data}
+      # Vision One Integration
+      - VISION_ONE_API_KEY=${VISION_ONE_API_KEY}
+      - VISION_ONE_REGION=${VISION_ONE_REGION:-us-1}
+      - ENABLE_HIPAA_COMPLIANCE=true
+      - ENABLE_PHI_SCANNING=true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/azure/status', (res) => { process.exit(res.statusCode === 200 ? 0 : 1); }).on('error', () => { process.exit(1); });"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - healthcare-network
+
+networks:
+  healthcare-network:
+    driver: bridge

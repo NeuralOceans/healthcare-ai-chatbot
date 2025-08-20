@@ -1,0 +1,137 @@
+# TMAS Override Configuration for Healthcare AI Application
+# This file defines exceptions and custom rules for healthcare-specific security scanning
+
+vulnerabilities:
+  # Override low-risk vulnerabilities that don't affect healthcare data processing
+  - id: "CVE-2023-44270"
+    reason: "PostCSS vulnerability - build-time only, doesn't affect runtime healthcare data"
+  - id: "CVE-2024-4067"
+    reason: "Vite dev dependency - not present in production container"
+  
+  # Accept certain Node.js vulnerabilities with compensating controls
+  - id: "CVE-2023-30590"
+    reason: "Node.js prototype pollution - mitigated by input validation in healthcare forms"
+
+secrets:
+  # Whitelist test patterns that aren't real secrets
+  - pattern: "test_api_key_*"
+    reason: "Test API keys used in development, not production secrets"
+  - pattern: "demo_password_*"
+    reason: "Demo credentials for testing, not real healthcare system access"
+  - pattern: "mock_ssn_*"
+    reason: "Mock SSN patterns for form testing, not real patient data"
+  
+  # Development environment variables
+  - pattern: "VITE_*"
+    reason: "Vite environment variables - public by design, not secrets"
+  - pattern: "NODE_ENV"
+    reason: "Standard Node.js environment variable"
+
+malware:
+  # Custom rules for healthcare-specific false positives
+  - signature: "generic_medical_form_*"
+    reason: "Healthcare form templates flagged as suspicious but are legitimate"
+
+# Healthcare-specific compliance checks
+compliance:
+  # HIPAA-related security requirements
+  hipaa:
+    encryption_at_rest: required
+    encryption_in_transit: required
+    audit_logging: required
+    access_controls: required
+  
+  # Additional healthcare security patterns to scan for
+  healthcare_patterns:
+    # Look for potential PHI exposure patterns
+    - pattern: "patient.*data.*log"
+      severity: "high"
+      reason: "Potential PHI logging - review for HIPAA compliance"
+    
+    - pattern: "ssn.*console\\.log"
+      severity: "critical"
+      reason: "SSN data in console logs - HIPAA violation"
+    
+    - pattern: "medical.*record.*unsecured"
+      severity: "high"
+      reason: "Unsecured medical record access pattern"
+
+# Custom severity overrides for healthcare context
+severity_overrides:
+  # Treat data exposure vulnerabilities as critical in healthcare context
+  - cve_pattern: ".*data.*exposure.*"
+    new_severity: "critical"
+    reason: "Data exposure is critical in healthcare applications"
+  
+  # Authentication bypass is always critical for healthcare
+  - cve_pattern: ".*authentication.*bypass.*"
+    new_severity: "critical"
+    reason: "Authentication bypass critical for patient data protection"
+
+# Exclusions for legitimate healthcare development patterns
+exclusions:
+  # Exclude legitimate medical terminology that might trigger false positives
+  medical_terms:
+    - "patient"
+    - "medical"
+    - "healthcare"
+    - "diagnosis"
+    - "treatment"
+    - "prescription"
+  
+  # Exclude legitimate file patterns
+  file_patterns:
+    - "*.test.js"
+    - "*.spec.ts"
+    - "mock_data/*"
+    - "test_fixtures/*"
+    - "development_seeds/*"
+
+# Reporting configuration
+reporting:
+  include_sbom: true
+  include_licenses: true
+  include_dependencies: true
+  
+  # Healthcare-specific reporting requirements
+  healthcare_compliance:
+    include_hipaa_assessment: true
+    include_phi_risk_analysis: true
+    include_access_control_review: true
+
+# Integration settings
+integration:
+  # Fail build on these conditions
+  fail_on:
+    - critical_vulnerabilities: true
+    - malware_detected: true
+    - phi_exposure_risk: true
+    - authentication_bypass: true
+  
+  # Warning conditions (don't fail build but flag for review)
+  warn_on:
+    - high_vulnerabilities: "> 5"
+    - secrets_detected: "> 0"
+    - outdated_dependencies: "> 10"
+
+# Custom scanning rules for healthcare AI applications
+ai_healthcare_rules:
+  # OpenAI API usage patterns
+  openai_security:
+    - pattern: "openai.*api.*key.*log"
+      severity: "critical"
+      reason: "OpenAI API key exposed in logs"
+    
+    - pattern: "patient.*data.*openai"
+      severity: "high"
+      reason: "Review: Patient data being sent to external AI service"
+  
+  # Azure Blob Storage security
+  azure_security:
+    - pattern: "azure.*storage.*key.*hardcoded"
+      severity: "critical"
+      reason: "Hardcoded Azure storage credentials"
+    
+    - pattern: "blob.*public.*access"
+      severity: "high"
+      reason: "Potential public access to patient data storage"
