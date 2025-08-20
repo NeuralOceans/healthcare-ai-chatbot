@@ -1,6 +1,6 @@
 # Healthcare AI Chatbot
 
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fyour-username%2Fhealthcare-ai-chatbot%2Fmain%2Fdeployment%2Fazuredeploy.json)
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fneuraloceans%2Fhealthcare-ai-chatbot%2Fmain%2Fdeployment%2Fazuredeploy.json)
 
 ## Overview
 
