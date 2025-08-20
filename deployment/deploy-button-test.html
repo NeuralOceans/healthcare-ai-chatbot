@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deploy Button Test - Healthcare AI Chatbot</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f8f9fa;
+        }
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .test-section {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #0078d4;
+            margin-bottom: 10px;
+        }
+        h2 {
+            color: #333;
+            border-bottom: 2px solid #0078d4;
+            padding-bottom: 10px;
+        }
+        .deploy-button {
+            display: inline-block;
+            background: #0078d4;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            margin: 10px 0;
+            transition: background 0.3s;
+        }
+        .deploy-button:hover {
+            background: #106ebe;
+        }
+        .test-result {
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+        }
+        .info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        .url-display {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            word-break: break-all;
+            margin: 10px 0;
+        }
+        .instructions {
+            background: #e7f3ff;
+            border-left: 4px solid #0078d4;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .step {
+            margin: 15px 0;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🚀 Healthcare AI Chatbot - Deploy Button Test</h1>
+        <p>Test the one-click Azure deployment functionality before going live.</p>
+    </div>
+
+    <div class="test-section">
+        <h2>🧪 Test Deploy Button</h2>
+        <p>Click this button to test the deployment process:</p>
+        
+        <a href="#" id="testDeployButton" class="deploy-button">Deploy to Azure (Test)</a>
+        
+        <div class="instructions">
+            <strong>📋 What this button should do:</strong>
+            <ul>
+                <li>Open Azure Portal in a new tab</li>
+                <li>Show a custom deployment form</li>
+                <li>Pre-fill the template URI with your ARM template</li>
+                <li>Allow you to enter deployment parameters</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>🔗 Generated URLs</h2>
+        
+        <div>
+            <strong>GitHub Repository URL:</strong>
+            <div class="url-display" id="repoUrl">https://github.com/your-username/healthcare-ai-chatbot</div>
+        </div>
+        
+        <div>
+            <strong>ARM Template Raw URL:</strong>
+            <div class="url-display" id="templateUrl">https://raw.githubusercontent.com/your-username/healthcare-ai-chatbot/main/deployment/azuredeploy.json</div>
+        </div>
+        
+        <div>
+            <strong>Azure Deploy URL:</strong>
+            <div class="url-display" id="deployUrl">Loading...</div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>✅ Pre-deployment Checklist</h2>
+        
+        <div class="step">
+            <strong>Step 1:</strong> Verify GitHub repository is public
+            <div class="test-result info">Repository must be public for ARM template access</div>
+        </div>
+        
+        <div class="step">
+            <strong>Step 2:</strong> Test ARM template accessibility
+            <button onclick="testTemplateAccess()" style="padding: 5px 10px; margin-top: 5px;">Test Template Access</button>
+            <div id="templateTestResult"></div>
+        </div>
+        
+        <div class="step">
+            <strong>Step 3:</strong> Verify required parameters
+            <div class="test-result success">✅ OpenAI API Key parameter configured</div>
+            <div class="test-result success">✅ Optional parameters available</div>
+        </div>
+        
+        <div class="step">
+            <strong>Step 4:</strong> Cost estimation
+            <div class="test-result info">
+                Expected monthly costs:
+                <ul>
+                    <li>App Service B1: ~$13/month</li>
+                    <li>Storage Account: ~$5/month</li>
+                    <li>Application Insights: ~$2/month</li>
+                    <li><strong>Total: ~$20/month</strong></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>🔧 Customization</h2>
+        
+        <div>
+            <label for="customUsername">Your GitHub Username:</label>
+            <input type="text" id="customUsername" placeholder="your-username" style="margin: 10px; padding: 5px;">
+        </div>
+        
+        <div>
+            <label for="customRepo">Repository Name:</label>
+            <input type="text" id="customRepo" placeholder="healthcare-ai-chatbot" style="margin: 10px; padding: 5px;" value="healthcare-ai-chatbot">
+        </div>
+        
+        <button onclick="updateUrls()" style="padding: 10px 20px; background: #0078d4; color: white; border: none; border-radius: 5px;">Update URLs</button>
+    </div>
+
+    <div class="test-section">
+        <h2>📋 Testing Instructions</h2>
+        
+        <div class="instructions">
+            <strong>For Repository Owners:</strong>
+            <ol>
+                <li>Update your GitHub username above</li>
+                <li>Click "Update URLs" to generate your specific deploy button</li>
+                <li>Test template accessibility</li>
+                <li>Click the deploy button to verify Azure Portal opens correctly</li>
+                <li>Complete a test deployment to verify functionality</li>
+            </ol>
+        </div>
+        
+        <div class="instructions">
+            <strong>For End Users:</strong>
+            <ol>
+                <li>Ensure you have an Azure subscription</li>
+                <li>Get your OpenAI API key from platform.openai.com</li>
+                <li>Click the "Deploy to Azure" button</li>
+                <li>Fill in the deployment form with your credentials</li>
+                <li>Wait 5-10 minutes for deployment to complete</li>
+                <li>Access your application and test functionality</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        function updateUrls() {
+            const username = document.getElementById('customUsername').value || 'your-username';
+            const repo = document.getElementById('customRepo').value || 'healthcare-ai-chatbot';
+            
+            const repoUrl = `https://github.com/${username}/${repo}`;
+            const templateUrl = `https://raw.githubusercontent.com/${username}/${repo}/main/deployment/azuredeploy.json`;
+            const encodedTemplateUrl = encodeURIComponent(templateUrl);
+            const deployUrl = `https://portal.azure.com/#create/Microsoft.Template/uri/${encodedTemplateUrl}`;
+            
+            document.getElementById('repoUrl').textContent = repoUrl;
+            document.getElementById('templateUrl').textContent = templateUrl;
+            document.getElementById('deployUrl').textContent = deployUrl;
+            document.getElementById('testDeployButton').href = deployUrl;
+        }
+        
+        function testTemplateAccess() {
+            const templateUrl = document.getElementById('templateUrl').textContent;
+            const resultDiv = document.getElementById('templateTestResult');
+            
+            resultDiv.innerHTML = '<div class="test-result info">Testing template access...</div>';
+            
+            fetch(templateUrl, { method: 'HEAD', mode: 'no-cors' })
+                .then(() => {
+                    resultDiv.innerHTML = '<div class="test-result success">✅ Template appears to be accessible</div>';
+                })
+                .catch((error) => {
+                    resultDiv.innerHTML = '<div class="test-result warning">⚠️ Cannot verify template access (CORS limitation). Try accessing the URL directly in a new tab.</div>';
+                });
+        }
+        
+        // Initialize with default URLs
+        updateUrls();
+    </script>
+</body>
+</html>

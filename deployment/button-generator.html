@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deploy to Azure Button Generator</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #0078d4;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        input[type="text"], input[type="url"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .output {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        .output h3 {
+            margin-top: 0;
+            color: #0078d4;
+        }
+        .code {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+        .button-preview {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .deploy-button {
+            display: inline-block;
+            background: #0078d4;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+        .deploy-button:hover {
+            background: #106ebe;
+        }
+        .note {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Deploy to Azure Button Generator</h1>
+        <p>Generate a "Deploy to Azure" button for your Healthcare AI Chatbot that automatically deploys to any Azure account.</p>
+        
+        <div class="form-group">
+            <label for="repoUrl">GitHub Repository URL:</label>
+            <input type="url" id="repoUrl" placeholder="https://github.com/username/healthcare-ai-chatbot" 
+                   value="https://github.com/your-username/healthcare-ai-chatbot">
+        </div>
+        
+        <div class="form-group">
+            <label for="templatePath">ARM Template Path:</label>
+            <input type="text" id="templatePath" placeholder="deployment/azuredeploy.json" 
+                   value="deployment/azuredeploy.json">
+        </div>
+
+        <div class="output">
+            <h3>📋 Generated Deploy Button Code</h3>
+            
+            <h4>Markdown (for README.md):</h4>
+            <div class="code" id="markdownCode"></div>
+            
+            <h4>HTML (for websites):</h4>
+            <div class="code" id="htmlCode"></div>
+            
+            <h4>Preview:</h4>
+            <div class="button-preview">
+                <a href="#" class="deploy-button" id="previewButton">Deploy to Azure</a>
+            </div>
+        </div>
+
+        <div class="note">
+            <strong>📝 Instructions for Users:</strong><br>
+            1. Upload your project to GitHub<br>
+            2. Ensure the ARM template is at the specified path<br>
+            3. Users click the button to deploy to their Azure account<br>
+            4. They'll need to provide their OpenAI API key during deployment
+        </div>
+
+        <div class="output">
+            <h3>🔗 What the Button Does</h3>
+            <p>When users click the "Deploy to Azure" button:</p>
+            <ul>
+                <li>Opens Azure Portal with pre-filled deployment form</li>
+                <li>Creates all required Azure resources automatically</li>
+                <li>Configures HIPAA-compliant storage and security</li>
+                <li>Sets up monitoring and logging</li>
+                <li>Only requires user's OpenAI API key</li>
+                <li>Takes 5-10 minutes from click to running application</li>
+            </ul>
+        </div>
+
+        <div class="output">
+            <h3>📋 ARM Template Features</h3>
+            <p>Your ARM template automatically creates:</p>
+            <ul>
+                <li>App Service with Linux container support</li>
+                <li>Storage Account with GRS redundancy and HIPAA compliance</li>
+                <li>Application Insights for monitoring</li>
+                <li>Log Analytics Workspace</li>
+                <li>All security configurations (HTTPS, TLS 1.2, private storage)</li>
+                <li>Environment variables for healthcare compliance</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        function updateCodes() {
+            const repoUrl = document.getElementById('repoUrl').value;
+            const templatePath = document.getElementById('templatePath').value;
+            
+            // Create the raw GitHub URL for the ARM template
+            const rawUrl = repoUrl.replace('github.com', 'raw.githubusercontent.com') + '/main/' + templatePath;
+            const encodedUrl = encodeURIComponent(rawUrl);
+            
+            // Azure deployment URL
+            const azureUrl = `https://portal.azure.com/#create/Microsoft.Template/uri/${encodedUrl}`;
+            
+            // Generate markdown
+            const markdown = `[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](${azureUrl})`;
+            
+            // Generate HTML
+            const html = `<a href="${azureUrl}" target="_blank">
+    <img src="https://aka.ms/deploytoazurebutton" alt="Deploy to Azure"/>
+</a>`;
+            
+            // Update the display
+            document.getElementById('markdownCode').textContent = markdown;
+            document.getElementById('htmlCode').textContent = html;
+            document.getElementById('previewButton').href = azureUrl;
+        }
+        
+        // Update codes when inputs change
+        document.getElementById('repoUrl').addEventListener('input', updateCodes);
+        document.getElementById('templatePath').addEventListener('input', updateCodes);
+        
+        // Initial update
+        updateCodes();
+    </script>
+</body>
+</html>
